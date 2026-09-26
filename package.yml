@@ -1,0 +1,162 @@
+name: tesseract
+title: Tesseract
+summary: Reads printed text in scans and photos (OCR) and writes text, hOCR, ALTO, TSV or searchable PDF. Includes English and orientation and script detection models.
+homepage: https://tesseract-ocr.github.io/
+license: Apache-2.0
+upstream:
+  source: github-release
+  repository: tesseract-ocr/tesseract
+  # Release tags look like 5.5.3; release candidates (5.4.0-rc1) do not match.
+  tag-pattern: '^(\d+\.\d+\.\d+)$'
+  version-template: '{1}'
+  versioning: semver
+  version: 5.5.3
+  # Releases attach no source tarball, so the build clones the signed tag and
+  # checks its signature and commit.
+  git:
+    url: https://github.com/tesseract-ocr/tesseract.git
+    tag: '{version}'
+    commit: db0ec62f81b0737fbbe184d8fea40af5738f8eef
+  # The English and orientation and script detection models from
+  # tessdata_fast, pinned by hand.
+  extra-artifacts:
+    tessdata-eng:
+      version: 4.1.0
+      url: https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/{version}/eng.traineddata
+      sha256: 7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2
+    tessdata-osd:
+      version: 4.1.0
+      url: https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/{version}/osd.traineddata
+      sha256: 9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff
+image:
+  entrypoint: [tesseract]
+  cmd: [--help]
+test:
+  - |
+    tesseract --version > version.txt
+    test "$(head -n 1 version.txt)" = "tesseract $VERSION"
+    grep -Eq '^ leptonica-[0-9]+\.[0-9]+' version.txt
+    for lib in libgif libjpeg libpng libtiff libwebp; do
+      grep -Eq " $lib [0-9]" version.txt || { echo "Leptonica cannot read $lib images" >&2; exit 1; }
+    done
+    grep -q '^ Found OpenMP ' version.txt
+    grep -q '^ Found libarchive ' version.txt
+    grep -q '^ Found libcurl/' version.txt
+    tesseract --list-langs > langs.txt
+    test "$(head -n 1 langs.txt)" = 'List of available languages in "/usr/local/share/tessdata/" (2):'
+    grep -Fxq eng langs.txt
+    grep -Fxq osd langs.txt
+  - |
+    # Three lines of text at 300 dpi.
+    base64 -d > text.png <<'EOF'
+    iVBORw0KGgoAAAANSUhEUgAAAe8AAAD2AQAAAADXXDKHAAAACXBIWXMAAC4jAAAuIwF4pT92AAAH
+    Q0lEQVR42u2aQW/byBXHf0MR9hQwykFPDrBrcRf9AO4tLZyYySmfonX6CXLIwQm80Rgw1joU2C+w
+    QLSL/RjdYBwLbY6+9hRK6UHHUaHDyKA4PVAUKVl2XRvbYhfURdJwfnyPM++N5v01wnOPlw+416vB
+    G7zBG7zBG7zBf654H4DxT2T9WIjb9R7+r559lqw0dJdHwscLvDO45f5q5xcVNnjvvR/4XPg0yoRP
+    2+55JryN0k1/HtnI6/2c80z4DGvagxyf09GdKNttee/z0vql16nLPL0R6cRzMQE8FxOv00t05gGM
+    JUeD173DFefdoTk/ci/06RF/s1afvwPy3fN3+Y51h8a90MA3juyhgXzH7mXJkvODfD86G7jH7U+u
+    PXD7UZrte+Ojcba/meatgdv3p3b/dGCztj93nW8+2bxdd35ISkyYxznxMPRKAcIrnyV6ICAESPYK
+    b512uVh2PhSgCEgUCYDUEBBLIEBXEyQAQRLZ1Ymz/Bph8BBCXLZqTUiCMIAGSAEyOVzGDTg8GcBD
+    cjY1kMMmGKhiWgMWOFnGp4LXqIRjtUgK4Ewy1YAq80f2AC+S0FyJuv1EfihuVU82CTC/AOE/55i8
+    gscfwmkRA/WgLKhpGSYzXXxQy/imt59lLa07Hi6yhUP+dVsDLT2nhDEgfMaVkaf1hhcGoFXPiQOA
+    +QXgYQpA7q5m3AFbteVkHsyF2a3y+0bxlu2t4oqIIC2X4/nDTnUxq0Faho0F6LveMr5HFNMnNAIo
+    ewcpGvZq/gwBIkKRr1j3wrIzj4lsMfoOdI5erHHRPMhstIzv5DFj8i/TYeHiuHqLPeRlFHsFUneH
+    K/nuj3iZRkeMDPxhxCQlBSapfET0OomOKOJZPoact4RS2zq+3U0ePZXdJ69OwP+Wr54yAn58Sl/L
+    LrKbMAMI+zH+66EyoZksJ6yOwxCdbMNuwMFWABBvbZCEQofoIo8DEmLBQZci4UVTgDd4gzd4gzd4
+    gzf4Lw2fqWu2LnH3Nnh2P+tOXd9hKuJp7GNEcrWkL589vcnCCGDGxbXWxzc6mGEh23HrroX/8fE6
+    TwHcoE/L3GXiYhyMrwoPt8QjEhii7hw2WVWSrcPfth/o42R8/JWEsxgv+JU809Owcp8+klkybx48
+    0IO4bt15fQF/vYSkkAgy0xvlJZ5XfpjeKKdn6Y3q+PhN2/HtPww+cmQPzfTdtww+VkUWkk1g3nx6
+    yOlRhT9PN7L4iD//qw3qCNdPN9pf2kDpqhItPhbNne0Dv31Qty5d8hgRKvI4gQDUE/qyrPhlVew9
+    oS/zWOVxXscVOkZXEoGsja5lcaVqTtTSxIniASlKlhT0ou/39dDUSEhkOY/BwkTxvaVLlYEXxZXj
+    EzAwKyW9F2RVigdrhDbZW5LY5EqnLlCoDGvwk4VEMNaluaWEHuubglYvJIJ5hd/RCKDlqpG8Hp9F
+    ppAI4DtXG3y9kCSK5o5fb313IRFs1F2qbrVxk/UsWfSorbJunWZZxxU1rVXYlZsm7K16OV4uwGtD
+    Mlyb8NX10Li5ylA5r9OF/BRdcTlmp5o8V5uAEpfmfe3XZXVhyvF8qB44tUGhMlT1e1qIWOFbjXwM
+    wMsLRpflyKj9MlpeXjDqMTJLeDCYZ8gwIezHALNnNftb70uPZs/EtCtenSxnnN4tUoaYoEi7g1CQ
+    VGF/UIpDIUaRbNe0yv/25TrFe36X3/eZvu/2QN8HN+4+1oPU3sv50XeL7LiLbiNa2X10G7N1L+uN
+    atTgDd7gDd7gPzu8VqF3b/Hf/0/v/EBxlnCsl3bCt8d7E5ILr3t3sd6HU+0jl+/Yuznv5R9zdZR9
+    4Zb/kLu1+KAgTkie3XHo4ihLdpzeuxue32Liht2p9A9CBoqxmv0OwSwAL/wjDaCVIAahp8/V2onT
+    o0tcTs9xMcHOSCYeLtHQMsLhLTkzDOlknXW/PfjI+COnR5y/41O2l1qrcYemXjVmeyl/f7Pu4ETa
+    OXX5ps2jdD8aZ5H17bNs09usfe69H1hvB37gbUe49sAu7evn+3ndRUv5RimvPGqMfR/AOJiX7/NC
+    VGviaJ3zAhUCxJJYEgfocFEUzv6yEAiSGybOKEjC+U7fycVxhazqGZNIvQ73Zc98IT3AZ0WPcrDT
+    G8JmEFanDZgJXS0Pm+/umO+zQldq3xHPlk4Z3Ii3vSlPG2ha3gGMihhZHa3bWhf6XmvdcH56QCLU
+    df2CpSU6m5826FaFHqCtJ51P3dp5F5YEQlOcNthBHtZWI10dkjLuGusZQOrm2kBxOigvKsbQDKXu
+    4zHXOn/oNARYYccQeZUsVpl0TGowGoUmHZcnKpbxSwuI0Q9MUuAxn080n0/ICUa9wJ6EHyXyUczo
+    +/IcxzL+py8AXml+fApb/Vgp4Dd4LaZfi7EMhoqwD78/We+82gBItom3IMDIFmwLYjASsyv0AQGG
+    eHs1iu4iGqyuNs3m5GeHN+pBgzd4gzd4gzd4gzd4g//f8X8DgG+EotKKNM8AAAAASUVORK5CYII=
+    EOF
+    tesseract text.png out txt hocr tsv alto page pdf
+    words="$(tr -s '[:space:]' ' ' < out.txt)"
+    test "${words% }" = 'Tesseract reads this text from a small PNG image rendered at 300 dpi.'
+  - |
+    grep -Eq "<span class='ocrx_word' [^>]*>(<[a-z]+>)*Tesseract<" out.hocr
+    # The TSV has one row per word at level 5, with the word in column 12.
+    awk -F '\t' 'NR == 1 { ok = $12 == "text" } $1 == 5 && $12 == "dpi." { found = 1 } END { exit !(ok && found) }' out.tsv
+    grep -q 'CONTENT="Tesseract"' out.xml
+    grep -q '<Unicode>Tesseract reads this text' out.page.xml
+    test "$(head -c 5 out.pdf)" = %PDF-
+    grep -aq '/BaseFont /GlyphLessFont' out.pdf
+  - |
+    tesseract - - < text.png > stdout.txt
+    cmp stdout.txt out.txt
+    # Orientation and script detection uses osd.traineddata and the legacy engine.
+    tesseract text.png osd --psm 0
+    grep -Fxq 'Orientation in degrees: 0' osd.osd
+    grep -Fxq 'Script: Latin' osd.osd
+    OMP_THREAD_LIMIT=1 tesseract text.png single
+    cmp single.txt out.txt
+examples:
+  - title: Read the text of a scanned page into page.txt
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/tesseract page.png page
+  - title: Make a searchable PDF from a scanned page
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/tesseract page.png page pdf
+  - title: Print the text of an image read from standard input
+    command: docker run --rm -i ghcr.io/randomcontainers/tesseract - - < page.png
+  - title: Render the pages of a PDF at 300 dpi for OCR (default image)
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" --entrypoint pdftoppm ghcr.io/randomcontainers/tesseract -r 300 -gray -png input.pdf page
+combos:
+  - with: [poppler]
+    default: true
+    base: tesseract
+    summary: Tesseract with Poppler, for OCR of PDF files. pdftoppm renders the pages and Tesseract reads them.
+    test:
+      - |
+        base64 -d > scan.png <<'EOF'
+        iVBORw0KGgoAAAANSUhEUgAAAjQAAACUAQAAAACsc45pAAAACXBIWXMAAC4jAAAuIwF4pT92AAAD
+        I0lEQVR42u2Zz27bRhCHv6UWNg8GROSkQ2Nv8wQ65iDYW6DvUb9Cb0RgtHMILN3cN6jfJLRj5Jwn
+        aCXlouOq0IEWSG4Poqw/TCQ1EHrahQAtNYOPs7O/mSUo5TnGmEYcZwRO4ARO4ARO4ARO4ARO4ARO
+        4ATO93IGm5cj2elxcDzDw+JRsoeTLRxG33CsOSXZHs7pcnK/i1P09sS9Sobbxck/usPSpHy+i6NI
+        D034zvy4w5XS+390aEvNg5k+mOmDQVFGMH0wXvF8ap5jyilKxgOAMqKv6CvwEX2zxXk7K7GOzJG5
+        EjvzQDaZI5OCyRwouV/kZualwlZY5l6qzXg8OPd7O+cu5y4vekPnBO6KPM1GfzH6Gygune8AuDwr
+        0mGRDsnTrLje4CTClzhLbugKXck/MjoDuhnvh586fOrQauc/5VwDjPRQ3aJuYXr7UgfLdf3Bk66M
+        xfawvSnuMQLs+TRioBkg4OQGAfRj5CLlIuUYM4w21xX/A9FwlXzRam0zEg0orALIViat0JucEy8x
+        WJCF0PIYAWlHkERABhEGwA9iRJNq0nXdLfUs96K+yKpH1NMf8ODrHyvAR4mwLI2sqZ/UAaWtq3/V
+        HMaLzK4t0qymz6rBOcmB9w2ZlqZRqNn+PtYswaKBqfbURQFlu75X66U5TH4DuPBfD+LUu2Z9Ad1m
+        u5H/VqdPAIVtmMffce54u9FFBVjuR2nBLH2FmPpD0uDotYZ4TpwCiAPlKuWwUC2PnhwpkAKh1+Cc
+        k1GtCUuK+j1n9bJtfmktVq9A/fa6PNJbpaftE1sB2RhIC9JcIJFaXpdVUvmk8gnnldniJFdxmes/
+        l7tzyeuZwOefX8+YT5g7IP4QL4wXhfHvjH9n5v5mO574MTGJjOuIzp5MkgC/xrzi6g2//AjoxzoZ
+        SWz1wOqBpTOwW5wTrjutFi/NNotbgO12FF1NcgK0qFvfmZJISaTE6jV5+W8Pt/iqLhqWvvf9Tdf9
+        54452nOUOQrHVceJJy2Ow5lP7AEcvdfjyvijxNNtHfZcRPjfIXACJ3ACJ3ACJ3ACJ3ACJ3ACJ3AC
+        J3ACB/gXQ5Ra1Z4yMMYAAAAASUVORK5CYII=
+        EOF
+        # Tesseract writes the scan as a PDF page with an invisible text layer,
+        # which Poppler reads back.
+        tesseract scan.png scan pdf
+        pdfinfo scan.pdf > info.txt
+        grep -Eq '^Pages: +1$' info.txt
+        pdffonts scan.pdf > fonts.txt
+        grep -q GlyphLessFont fonts.txt
+        pdftotext scan.pdf - | tr -s '[:space:]' ' ' | grep -Fq 'Scanned page for Poppler'
+      - |
+        # OCR of a two-page PDF: pdftoppm renders each page, and Tesseract reads
+        # the list of page images into one searchable PDF.
+        printf '%s\n' scan.png scan.png > scans.txt
+        tesseract scans.txt input pdf
+        pdftoppm -r 300 -gray -png input.pdf page
+        ls page-*.png > pages.txt
+        test "$(wc -l < pages.txt)" -eq 2
+        tesseract pages.txt searchable txt pdf
+        test "$(grep -c 'Scanned page for Poppler' searchable.txt)" -eq 2
+        pdfinfo searchable.pdf > info.txt
+        grep -Eq '^Pages: +2$' info.txt
+        pdftotext searchable.pdf searchable-layer.txt
+        test "$(tr -s '[:space:]' ' ' < searchable-layer.txt | grep -o 'Scanned page for Poppler' | wc -l)" -eq 2
