@@ -1,0 +1,127 @@
+# syntax=docker/dockerfile:1.27.0@sha256:bde3983e9c939224420ddaf6b784cc30e09b035a4dea01f581230c50809f372e
+# check=error=true
+
+ARG BASE_IMAGE=alpine:3.24
+
+FROM ${BASE_IMAGE} AS source
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+RUN apk add --no-cache ca-certificates git gpgv
+# Tesseract release tags are signed by Stefan Weil, fingerprint 4923 6FEA 75C9 5D69 8EC2 B78A E08C 21D5 6774 50AD.
+# A tag signed by anyone else fails the gpgv check below until their key is added to keys/tesseract-release.gpg.
+COPY keys/tesseract-release.gpg /tmp/tesseract-release.gpg
+ARG VERSION
+ARG SOURCE_COMMIT
+# The signed part of an annotated tag starts with the commit it points to and
+# the tag name, so the check below also proves that the tag was not moved.
+RUN set -eu; \
+    printf '%s\n' "${VERSION}" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+' \
+      || { echo "unexpected VERSION: ${VERSION}" >&2; exit 1; }; \
+    printf '%s\n' "${SOURCE_COMMIT}" | grep -Eqx '[0-9a-f]{40}' \
+      || { echo "SOURCE_COMMIT must be a full commit id" >&2; exit 1; }; \
+    git -c advice.detachedHead=false clone --quiet --depth 1 --branch "${VERSION}" \
+      https://github.com/tesseract-ocr/tesseract.git /src/tesseract; \
+    test "$(git -C /src/tesseract rev-parse HEAD)" = "${SOURCE_COMMIT}" \
+      || { echo "tag ${VERSION} is not commit ${SOURCE_COMMIT}" >&2; exit 1; }; \
+    git -C /src/tesseract cat-file tag "refs/tags/${VERSION}" > /tmp/tag; \
+    sed '/^-----BEGIN PGP SIGNATURE-----$/,$d' /tmp/tag > /tmp/tag.payload; \
+    sed -n '/^-----BEGIN PGP SIGNATURE-----$/,$p' /tmp/tag > /tmp/tag.asc; \
+    gpgv --keyring /tmp/tesseract-release.gpg /tmp/tag.asc /tmp/tag.payload; \
+    printf 'object %s\ntype commit\ntag %s\n' "${SOURCE_COMMIT}" "${VERSION}" > /tmp/tag.expected; \
+    head -n 3 /tmp/tag.payload | cmp - /tmp/tag.expected; \
+    test "$(cat /src/tesseract/VERSION)" = "${VERSION}"; \
+    rm -rf /src/tesseract/.git
+ARG TESSDATA_ENG_VERSION
+ARG TESSDATA_ENG_SHA256
+ARG TESSDATA_OSD_VERSION
+ARG TESSDATA_OSD_SHA256
+ADD --checksum=sha256:${TESSDATA_ENG_SHA256} https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/${TESSDATA_ENG_VERSION}/eng.traineddata /src/tessdata/
+ADD --checksum=sha256:${TESSDATA_OSD_SHA256} https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/${TESSDATA_OSD_VERSION}/osd.traineddata /src/tessdata/
+
+FROM ${BASE_IMAGE} AS build
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+RUN apk add --no-cache \
+      autoconf \
+      automake \
+      build-base \
+      curl-dev \
+      leptonica-dev \
+      libarchive-dev \
+      libtool \
+      pkgconf \
+      scanelf
+COPY --link --from=source /src/tesseract /src/tesseract
+WORKDIR /src/tesseract
+ARG JOBS
+# Only the tesseract program and its shared library are built. The training
+# tools, which need Pango, Cairo and ICU, and the manual pages are not.
+# libarchive and libcurl are requested explicitly, so that the build stops if
+# either is missing instead of leaving it out.
+RUN set -eu; \
+    ./autogen.sh; \
+    set -- \
+      --prefix=/usr/local \
+      --disable-doc \
+      --disable-static \
+      --with-archive \
+      --with-curl; \
+    ./configure "$@"; \
+    echo "configure: $*" > /tmp/configure-options; \
+    make -j"${JOBS:-$(nproc)}"; \
+    make install-strip DESTDIR=/out; \
+    rm -rf /out/usr/local/include /out/usr/local/lib/pkgconfig; \
+    rm -f /out/usr/local/lib/libtesseract.la
+COPY --link --from=source /src/tessdata/ /tmp/tessdata/
+
+ARG BASE_IMAGE
+ARG VERSION
+ARG SOURCE_COMMIT
+ARG TESSDATA_ENG_VERSION
+ARG TESSDATA_ENG_SHA256
+ARG TESSDATA_OSD_VERSION
+ARG TESSDATA_OSD_SHA256
+# runtime-deps lists the so: names the binaries need, minus the libraries
+# built here, plus the packages in runtime-deps.alpine.
+RUN --mount=type=bind,source=runtime-deps.alpine,target=/tmp/runtime-deps.extra \
+    set -eu; \
+    install -m 0644 /tmp/tessdata/eng.traineddata /tmp/tessdata/osd.traineddata /out/usr/local/share/tessdata/; \
+    meta=/out/usr/local/share/randomcontainers/tesseract; \
+    mkdir -p "$meta/licenses"; \
+    cp LICENSE "$meta/licenses/"; \
+    echo "${VERSION}" > "$meta/version"; \
+    printf '%s\n' \
+      "https://github.com/tesseract-ocr/tesseract.git@${SOURCE_COMMIT}" \
+      "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/${TESSDATA_ENG_VERSION}/eng.traineddata#sha256=${TESSDATA_ENG_SHA256}" \
+      "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/${TESSDATA_OSD_VERSION}/osd.traineddata#sha256=${TESSDATA_OSD_SHA256}" \
+      > "$meta/source"; \
+    LD_LIBRARY_PATH=/out/usr/local/lib /out/usr/local/bin/tesseract --version > /tmp/tesseract-version; \
+    test "$(sed -n 1p /tmp/tesseract-version)" = "tesseract ${VERSION}"; \
+    grep -q '^ Found OpenMP ' /tmp/tesseract-version; \
+    grep -q '^ Found libarchive ' /tmp/tesseract-version; \
+    grep -q '^ Found libcurl/' /tmp/tesseract-version; \
+    { \
+      echo "base: ${BASE_IMAGE}"; \
+      echo "compiler: $(c++ --version | sed -n 1p)"; \
+      cat /tmp/configure-options; \
+      echo "commit: ${SOURCE_COMMIT}"; \
+      echo "leptonica: $(pkg-config --modversion lept)"; \
+      echo "models: eng and osd from tessdata_fast ${TESSDATA_ENG_VERSION} and ${TESSDATA_OSD_VERSION}"; \
+    } > "$meta/buildinfo"; \
+    scanelf --needed --nobanner --format '%n#p' --recursive /out/usr/local | tr ',' '\n' | sort -u > /tmp/needed; \
+    while read -r so; do \
+      if [ -n "$so" ] && [ -z "$(find /out -name "$so" -print -quit)" ]; then echo "so:$so"; fi; \
+    done < /tmp/needed > /tmp/elf-deps; \
+    test -s /tmp/elf-deps; \
+    sort -u /tmp/elf-deps /tmp/runtime-deps.extra > "$meta/runtime-deps"
+
+FROM ${BASE_IMAGE} AS slim
+COPY --link --from=build /out/usr/local/ /usr/local/
+RUN set -eu; \
+    xargs apk add --no-cache ca-certificates tini < /usr/local/share/randomcontainers/tesseract/runtime-deps; \
+    addgroup -g 1000 app; \
+    adduser -D -u 1000 -G app app; \
+    install -d -m 1777 /work /cache
+ENV LANG=C.UTF-8 XDG_CACHE_HOME=/cache
+WORKDIR /work
+USER 1000:1000
+ENTRYPOINT ["tini", "--", "tesseract"]
+CMD ["--help"]
