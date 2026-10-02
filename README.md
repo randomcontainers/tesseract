@@ -11,7 +11,7 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" \
   ghcr.io/randomcontainers/tesseract page.png page
 ```
 
-This reads `page.png` and writes the text to `page.txt`. The same images can also be pulled as `randomcontainers.com/tesseract`.
+This reads `page.png` and writes the text to `page.txt`.
 
 Make a searchable PDF, which keeps the page image and adds the recognized text as an invisible layer:
 
