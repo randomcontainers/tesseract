@@ -10,13 +10,13 @@ upstream:
   tag-pattern: '^(\d+\.\d+\.\d+)$'
   version-template: '{1}'
   versioning: semver
-  version: 5.5.3
+  version: 5.5.4
   # Releases attach no source tarball, so the build clones the signed tag and
   # checks its signature and commit.
   git:
     url: https://github.com/tesseract-ocr/tesseract.git
     tag: '{version}'
-    commit: db0ec62f81b0737fbbe184d8fea40af5738f8eef
+    commit: 7e548e6eff172f38f97664afe7f7ce40db36c8d6
   # The English and orientation and script detection models from
   # tessdata_fast, pinned by hand.
   extra-artifacts:
